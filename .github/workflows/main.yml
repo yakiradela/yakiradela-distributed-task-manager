@@ -1,0 +1,174 @@
+name: AWS CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  REGISTRY: docker.io
+  REPO: yakiradela
+
+jobs:
+  bootstrap:
+    name: Bootstrap Terraform Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/boostrap
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply (bootstrap)
+        run: terraform apply -auto-approve
+
+  terraform:
+    name: Apply Terraform Infrastructure
+    runs-on: ubuntu-latest
+    needs: bootstrap
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -var-file=terraform.tfvars
+
+  build-images:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: terraform
+    strategy:
+      matrix:
+        service: [api-gateway, tasks-service, users-service]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Image
+        run: |
+          docker build -t $REGISTRY/$REPO/${{ matrix.service }}:latest ./services/${{ matrix.service }}
+          docker push $REGISTRY/$REPO/${{ matrix.service }}:latest
+
+  deploy-services:
+    name: Deploy Microservices with Helm
+    runs-on: ubuntu-latest
+    needs: build-images
+    strategy:
+      matrix:
+        service: [api-gateway, tasks-service, users-service]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ secrets.K8S_CLUSTER_NAME }}
+
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Deploy via Helm
+        run: |
+          helm upgrade --install ${{ matrix.service }} \
+            ./charts/${{ matrix.service }} \
+            --values ./charts/${{ matrix.service }}/values.yaml \
+            --namespace distributed-task-manager --create-namespace
+
+  deploy-shared:
+    name: Deploy Shared Services
+    runs-on: ubuntu-latest
+    needs: build-images
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ secrets.K8S_CLUSTER_NAME }}
+
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Create Namespace
+        run: kubectl apply -f k8s/namespace.yaml
+
+      - name: Apply Vault Agent Config
+        run: kubectl apply -f k8s/vault-agent-config.yaml
+
+      - name: Create Secrets
+        run: |
+          kubectl create secret generic app-secrets \
+            --from-literal=secret_key=${{ secrets.APP_SECRET_KEY }} \
+            --from-literal=task_secret=${{ secrets.TASK_SECRET_KEY }} \
+            --namespace=distributed-task-manager --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy MongoDB
+        run: helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
+
+      - name: Deploy Monitoring
+        run: helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
+
+      - name: Apply Ingress
+        run: kubectl apply -f k8s/ingress.yaml
