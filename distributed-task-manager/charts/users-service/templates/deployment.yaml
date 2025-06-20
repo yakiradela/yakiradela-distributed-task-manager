@@ -1,0 +1,24 @@
+apiVersion: 
+kind: Deployment
+metadata:
+    name: {{ include "users-service.name" . }}
+spec:
+    replicas: {{ .Values.replicaCount }} 
+    selector:
+        matchLabels:
+            app: {{ include "users-service.name" . }}
+    template:
+        metadata:
+            labels:
+                app: {{ include "users-service.name" . }} 
+            spec:
+                containers:
+                    - name: {{ .Chart.Name }}
+                      image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"       
+                      imagePullPolicy: {{ .Values.image.PullPolicy }}
+                      ports:
+                        - containerPort: 5000
+                      envFrom:
+                        - configMapRef:
+                            name: {{ include "users-service.fullname" . }}
+                              

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: users-service
+description: A microservice for managing users 
+version: 0.1.0
+appVersion: "1.0.0"

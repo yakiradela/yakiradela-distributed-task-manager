@@ -1,0 +1,7 @@
+{{- define "mongodb.name" -}}
+mongodb
+{{- end }}
+
+{{- define "mongodb.fullname" -}}
+{{ .Release.Name }}-mongodb
+{{- end }}

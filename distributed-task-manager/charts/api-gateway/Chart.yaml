@@ -1,0 +1,5 @@
+apiVersion: v2
+name: api-gateway 
+description: A Flask-based API Gateway for the Distributed Task Manager
+version: 0.1.0
+appVersion: "1.0.0"

@@ -1,0 +1,21 @@
+replicaCount: 2
+
+image:
+  repository: yakiradela/users-service
+  tag: latest
+  PullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5000
+
+resources: {}
+
+autoscaling: 
+  enabled: true
+  minReplicas: 4
+  maxReplicas: 2
+  targetCPUUtilizationPercentage: 70
+
+env:
+  ENVIRONMENT: "production"  

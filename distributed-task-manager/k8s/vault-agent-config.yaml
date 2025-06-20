@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-config
+  namespace: distributed-task-manager
+data:
+  vault-agent-config.hcl: |
+    exit_after_auth = false
+    pid_file = "/tmp/vault-agent.pid"
+
+    auto_auth {
+      method "kubernetes" {
+        mount_path = "auth/kubernetes"
+        config = {
+          role = "flask-service"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/home/vault/.vault-token"
+        }
+      }
+    }
+
+    template {
+      destination = "/vault/secrets/config.env"
+      contents = <<EOH
+      export DB_USER={{ with secret "secret/data/flask-service" }}{{ .Data.data.DB_USER }}{{ end }}
+      export DB_PASSWORD={{ with secret "secret/data/flask-service" }}{{ .Data.data.DB_PASSWORD }}{{ end }}
+      export JWT_SECRET={{ with secret "secret/data/flask-service" }}{{ .Data.data.JWT_SECRET }}{{ end }}
+      EOH
+    }

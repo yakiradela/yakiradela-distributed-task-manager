@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tasks-service
+description: A Flask-based tasks-service for the Distributed Task Manager
+version: 0.1.0
+appVersion: "1.0.0"

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: users-tasks
+description: A Flask-based users-serevice for the Distributed Task Manager
+version: 0.1.0
+appVersion: "1.0.0"

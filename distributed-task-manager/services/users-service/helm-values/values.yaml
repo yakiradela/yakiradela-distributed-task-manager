@@ -1,0 +1,27 @@
+replicaCount: 2
+
+image:  
+  repository: yakiradela/users-service
+  tag: 
+  PullPolicy: Always
+
+service: 
+  type: ClusterIP
+  port: 5000
+
+env:
+  - name: MONGO_URI
+    value: mongodb://mongodb:27017/users-db
+  - name: SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: app-secrets
+        key: secret_key 
+
+resources:
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+  requests:
+    cpu: "200"             
+    memory: "256Mi"

@@ -1,0 +1,13 @@
+image:
+  repository: yakiradela/tasks-service
+  tag: latest
+
+env: 
+  - name: MONGO_URI
+    value: mongodb://mongodb:27017/tasks-db 
+  - name: SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: app-secrets
+        key: task_secret
+           

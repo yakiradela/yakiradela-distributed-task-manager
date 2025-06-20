@@ -1,0 +1,30 @@
+replicaCount: 2
+
+image: 
+  repository: yakiradela/api-gateway
+  tag: latest
+  PullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80 
+  targetPort: 5000
+
+env:
+  USERS_SERVICE_URL: http://users-service
+  TASKS_SERVICE_URL: http://tasks-service    
+  SECRET_KEY: super-secret
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 200m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true 
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPrecentage: 60       

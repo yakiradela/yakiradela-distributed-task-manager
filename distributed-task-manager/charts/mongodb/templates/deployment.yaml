@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment 
+metadata:
+  name: {{ .Release.Name }}-mongodb
+spec: 
+  replicas: 1
+  selector: 
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels: 
+        app: mongodb
+    spec: 
+      containers:
+        - name: mongodb 
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+          - containerPort: {{ .Values.service.port }} 
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+      volumes:
+        - name: mongo-data
+          PersistentVolumeClaim:
+            claimName: {{ .Release.Name }}-mongodb-pvc
+        
+            

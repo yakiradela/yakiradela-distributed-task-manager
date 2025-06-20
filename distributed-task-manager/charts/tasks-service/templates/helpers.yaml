@@ -1,0 +1,7 @@
+{{- define "tasks-service.name" -}}
+tasks-service
+{{- end }}
+
+{{- define "tasks-service.fullname" -}}
+{{ .Release.Name }}-tasks-service
+{{- end }}
