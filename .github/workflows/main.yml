@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: infra/boostrap
+        working-directory: distributed-task-manager/infra/boostrap
 
     steps:
       - uses: actions/checkout@v3
@@ -42,7 +42,7 @@ jobs:
     needs: bootstrap
     defaults:
       run:
-        working-directory: infra
+        working-directory: distributed-task-manager/infra
 
     steps:
       - uses: actions/checkout@v3
