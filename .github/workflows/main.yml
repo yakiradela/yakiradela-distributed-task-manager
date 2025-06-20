@@ -1,4 +1,4 @@
-name: AWS CI/CD Pipeline
+name: AWS CI/CD Pipeline 
 
 on:
   push:
