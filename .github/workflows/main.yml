@@ -1,5 +1,5 @@
-name: AWS CI/CD Pipeline 
- 
+name: AWS CI/CD Pipeline
+
 on:
   push:
     branches: [ master ]
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: distributed-task-manager/infra/boostrap
+        working-directory: distributed-task-manager/infra/bootstrap
 
     steps:
       - uses: actions/checkout@v3
@@ -32,12 +32,9 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
-        working-directory: distributed-task-manager/infra/boostrap
 
       - name: Terraform Apply
         run: terraform apply -auto-approve -var="aws_region=${{ secrets.AWS_REGION }}"
-        working-directory: distributed-task-manager/infra/boostrap
-
 
   terraform:
     name: Apply Terraform Infrastructure
