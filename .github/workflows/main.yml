@@ -32,9 +32,12 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
+        working-directory: distributed-task-manager/infra/bootstrap
 
-      - name: Terraform Apply (bootstrap)
-        run: terraform apply -auto-approve
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -var="aws_region=${{ secrets.AWS_REGION }}"
+        working-directory: distributed-task-manager/infra/bootstrap
+
 
   terraform:
     name: Apply Terraform Infrastructure
