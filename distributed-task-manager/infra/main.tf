@@ -8,6 +8,11 @@ module "vpc" {
   environment      = var.environment
 }
 
+data "aws_security_group" "default" {
+  name   = "default"
+  vpc_id = module.vpc.vpc_id
+}
+
 module "eks" {
   source          = "./eks"
   cluster_name    = var.cluster_name
@@ -22,5 +27,5 @@ module "rds" {
   db_username       = var.db_username
   db_password       = var.db_password
   private_subnets   = module.vpc.private_subnets
-  security_group_id = module.vpc.default_security_group_id # נדרש לוודא שה-VPC מחזיר את הפלט הזה
+  security_group_id = data.aws_security_group.default.id
 }
