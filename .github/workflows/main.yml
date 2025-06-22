@@ -82,7 +82,7 @@ jobs:
 
       - name: Build and Push Image
         run: |
-          docker build -t $REGISTRY/$REPO/${{ matrix.service }}:latest ./services/${{ matrix.service }}
+          docker build -t $REGISTRY/$REPO/${{ matrix.service }}:latest ./distributed-task-manager/services/${{ matrix.service }}
           docker push $REGISTRY/$REPO/${{ matrix.service }}:latest
 
   deploy-services:
