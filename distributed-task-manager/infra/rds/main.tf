@@ -12,7 +12,7 @@ resource "aws_db_instance" "postgres" {
     engine                 = "postgres"
     instance_class         = "db.t3.micro"
     allocated_storage      = 20
-    name                   = "tasksdb"
+    db_name                = "tasksdb"
     username               = var.db_username 
     password               = var.db_password
     db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name 
