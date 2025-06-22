@@ -1,6 +1,6 @@
 name: AWS CI/CD Pipeline
 
-on:
+on: 
   push:
     branches: [ master ] 
 
