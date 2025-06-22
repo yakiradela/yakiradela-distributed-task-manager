@@ -2,7 +2,7 @@ name: AWS CI/CD Pipeline
 
 on: 
   push:
-    branches: [ master ] 
+    branches: [ master ]
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -152,10 +152,10 @@ jobs:
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
       - name: Create Namespace
-        run: kubectl apply -f k8s/namespace.yaml
+        run: kubectl apply -f distributed-task-manager/k8s/namespace.yaml
 
       - name: Apply Vault Agent Config
-        run: kubectl apply -f k8s/vault-agent-config.yaml
+        run: kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
 
       - name: Create Secrets
         run: |
@@ -171,4 +171,4 @@ jobs:
         run: helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
       - name: Apply Ingress
-        run: kubectl apply -f k8s/ingress.yaml
+        run: kubectl apply -f distributed-task-manager/k8s/ingress.yaml
