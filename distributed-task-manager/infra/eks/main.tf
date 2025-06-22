@@ -1,28 +1,34 @@
 module "eks" {
-    source              = "terraform-aws-modules/eks/aws"
-    version             = "20.8.3"
+  source  = "terraform-aws-modules/eks/aws"
+  version = "20.8.3"
 
-    cluster_name        = var.cluster_name
-    cluster_version     = var.cluster_version 
+  cluster_name    = var.cluster_name
+  cluster_version = var.cluster_version
 
-    vpc_id              = var.vpc_id
-    subnet_ids          = var.private_subnets
+  vpc_id     = var.vpc_id
+  subnet_ids = var.private_subnets
 
-    enable_irsa         = true
+  enable_irsa = true
 
-    eks_managed_node_groups = {
-        default = {
-            instance_types  = ["t3.medium"]
-            desired_size    = 2
-            min_size        = 1
-            max_size        = 3
-        }
-    } 
+  # מניעת יצירת KMS בתוך המודול
+  create_kms_key = false
 
-    tags = {
-        environment = var.environment
-        terraform   = "true"
+  cluster_encryption_config = {
+    resources = ["secrets"]
+    provider_key_arn = aws_kms_key.eks.arn
+  }
+
+  eks_managed_node_groups = {
+    default = {
+      instance_types = ["t3.medium"]
+      desired_size   = 2
+      min_size       = 1
+      max_size       = 3
     }
+  }
 
+  tags = {
+    environment = var.environment
+    terraform   = "true"
+  }
 }
-
