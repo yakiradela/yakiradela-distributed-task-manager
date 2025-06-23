@@ -1,174 +1,118 @@
-name: AWS CI/CD Pipeline
+name: CI/CD - DTM App on EKS
 
 on: 
   push:
     branches: [ master ]
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_REGION: us-east-2
+  CLUSTER_NAME: dtm-cluster
   REGISTRY: docker.io
   REPO: yakiradela
 
 jobs:
-  bootstrap:
-    name: Bootstrap Terraform Backend
+  deploy:
+    name: Full Deployment Pipeline
     runs-on: ubuntu-latest
-    defaults:
-      run:
+
+    steps:
+      ####################################################################
+      # שלב 1: Clone הקוד והגדרת הרשאות
+      ####################################################################
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      ####################################################################
+      # שלב 2: התקנת Terraform והרצת bootstrap/init/apply
+      ####################################################################
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Terraform Bootstrap
         working-directory: distributed-task-manager/infra/boostrap
+        run: |
+          terraform init
+          terraform apply -auto-approve -var="aws_region=${{ env.AWS_REGION }}"
 
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Terraform Apply
-        run: terraform apply -auto-approve -var="aws_region=${{ secrets.AWS_REGION }}"
-
-  terraform:
-    name: Apply Terraform Infrastructure
-    runs-on: ubuntu-latest
-    needs: bootstrap
-    defaults:
-      run:
+      - name: Terraform Init & Apply Infra
         working-directory: distributed-task-manager/infra
+        run: |
+          terraform init
+          terraform apply -auto-approve -var-file=terraform.tfvars
 
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Terraform Apply
-        run: terraform apply -auto-approve -var-file=terraform.tfvars
-
-  build-images:
-    name: Build and Push Docker Images
-    runs-on: ubuntu-latest
-    needs: terraform
-    strategy:
-      matrix:
-        service: [api-gateway, tasks-service, users-service]
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Log in to Docker Hub
+      ####################################################################
+      # שלב 3: בניית תמונות Docker ודחיפה ל-Registry
+      ####################################################################
+      - name: Docker Login
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and Push Image
+      - name: Build & Push Images
         run: |
-          docker build -t $REGISTRY/$REPO/${{ matrix.service }}:latest ./distributed-task-manager/services/${{ matrix.service }}
-          docker push $REGISTRY/$REPO/${{ matrix.service }}:latest
+          for service in api-gateway tasks-service users-service; do
+            docker build -t $REGISTRY/$REPO/$service:latest ./distributed-task-manager/services/$service
+            docker push $REGISTRY/$REPO/$service:latest
+          done
 
-  deploy-services:
-    name: Deploy Microservices with Helm
-    runs-on: ubuntu-latest
-    needs: build-images
-    strategy:
-      matrix:
-        service: [api-gateway, tasks-service, users-service]
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
+      ####################################################################
+      # שלב 4: קונפיגורציה לקלאסטר EKS ו־kubectl
+      ####################################################################
       - name: Install kubectl
         run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          curl -LO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ secrets.K8S_CLUSTER_NAME }}
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
 
+      - name: Show kubeconfig (debug)
+        run: cat ~/.kube/config
+
+      - name: Test cluster connection (debug)
+        run: kubectl get nodes
+
+      ####################################################################
+      # שלב 5: התקנת Helm ופריסת microservices
+      ####################################################################
       - name: Install Helm
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-      - name: Deploy via Helm
+      - name: Deploy Microservices with Helm
         run: |
-          helm upgrade --install ${{ matrix.service }} \
-            ./charts/${{ matrix.service }} \
-            --values ./charts/${{ matrix.service }}/values.yaml \
-            --namespace distributed-task-manager --create-namespace
+          for service in api-gateway tasks-service users-service; do
+            helm upgrade --install $service \
+              ./charts/$service \
+              --values ./charts/$service/values.yaml \
+              --namespace distributed-task-manager --create-namespace
+          done
 
-  deploy-shared:
-    name: Deploy Shared Services
-    runs-on: ubuntu-latest
-    needs: build-images
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Install kubectl
-        run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ secrets.K8S_CLUSTER_NAME }}
-
-      - name: Install Helm
-        run: |
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
+      ####################################################################
+      # שלב 6: פריסת שירותים משותפים (MongoDB, Vault וכו’)
+      ####################################################################
       - name: Create Namespace
         run: kubectl apply -f distributed-task-manager/k8s/namespace.yaml
 
       - name: Apply Vault Agent Config
         run: kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
 
-      - name: Create Secrets
-        run: |
-          kubectl create secret generic app-secrets \
-            --from-literal=secret_key=${{ secrets.APP_SECRET_KEY }} \
-            --from-literal=task_secret=${{ secrets.TASK_SECRET_KEY }} \
-            --namespace=distributed-task-manager --dry-run=client -o yaml | kubectl apply -f -
-
       - name: Deploy MongoDB
         run: helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
 
-      - name: Deploy Monitoring
+      - name: Deploy Monitoring (Grafana + Prometheus)
         run: helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
-      - name: Apply Ingress
+      - name: Apply Ingress Rules
         run: kubectl apply -f distributed-task-manager/k8s/ingress.yaml
