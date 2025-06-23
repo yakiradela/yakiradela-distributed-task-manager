@@ -8,7 +8,7 @@ env:
   AWS_REGION: us-east-2
   CLUSTER_NAME: dtm-cluster
   REGISTRY: docker.io
-  REPO: yakiradela
+  REPO_NAME: yakiradela
 
 jobs:
   deploy:
@@ -61,8 +61,9 @@ jobs:
       - name: Build & Push Images
         run: |
           for service in api-gateway tasks-service users-service; do
-            docker build -t ${{ env.REGISTRY }}/${{ env.REPO_NAME }}/$service:latest ./distributed-task-manager/services/$service
-            docker push ${{ env.REGISTRY }}/${{ env.REPO_NAME }}/$service:latest
+            echo "Building and pushing: $REGISTRY/$REPO_NAME/$service:latest"
+            docker build -t $REGISTRY/$REPO_NAME/$service:latest ./distributed-task-manager/services/$service
+            docker push $REGISTRY/$REPO_NAME/$service:latest
           done
 
       ####################################################################
@@ -77,33 +78,16 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
 
-      - name: Install yq (YAML processor)
+      - name: Add user to aws-auth config map (if needed)
         run: |
-          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
-          sudo chmod +x /usr/local/bin/yq
+          eksctl create iamidentitymapping \
+            --cluster $CLUSTER_NAME \
+            --region $AWS_REGION \
+            --arn arn:aws:iam::557690607676:user/yakiradela \
+            --username admin \
+            --group system:masters || true
 
-      - name: Patch aws-auth ConfigMap to add IAM User
-        run: |
-          kubectl get configmap aws-auth -n kube-system -o yaml > aws-auth.yaml
-
-          if grep -q "mapUsers" aws-auth.yaml; then
-            if grep -q "${{ env.IAM_USER_ARN }}" aws-auth.yaml; then
-              echo "User already present in aws-auth"
-            else
-              echo "Adding user to mapUsers"
-              yq eval ".data.mapUsers |= . + \"- userarn: ${{ env.IAM_USER_ARN }}\n  username: yakiradela\n  groups:\n    - system:masters\n\"" -i aws-auth.yaml
-              kubectl apply -f aws-auth.yaml
-            fi
-          else
-            echo "mapUsers section not found, creating with user"
-            yq eval ".data.mapUsers = \"- userarn: ${{ env.IAM_USER_ARN }}\n  username: yakiradela\n  groups:\n    - system:masters\n\"" -i aws-auth.yaml
-            kubectl apply -f aws-auth.yaml
-          fi
-
-          echo "aws-auth ConfigMap after patch:"
-          kubectl get configmap aws-auth -n kube-system -o yaml
-
-      - name: Test cluster connection (debug)
+      - name: Test cluster connection
         run: kubectl get nodes
 
       ####################################################################
