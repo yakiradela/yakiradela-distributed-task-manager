@@ -61,8 +61,8 @@ jobs:
       - name: Build & Push Images
         run: |
           for service in api-gateway tasks-service users-service; do
-            docker build -t $REGISTRY/$REPO/$service:latest ./distributed-task-manager/services/$service
-            docker push $REGISTRY/$REPO/$service:latest
+            docker build -t ${{ env.REGISTRY }}/${{ env.REPO_NAME }}/$service:latest ./distributed-task-manager/services/$service
+            docker push ${{ env.REGISTRY }}/${{ env.REPO_NAME }}/$service:latest
           done
 
       ####################################################################
@@ -77,8 +77,31 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
 
-      - name: Show kubeconfig (debug)
-        run: cat ~/.kube/config
+      - name: Install yq (YAML processor)
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Patch aws-auth ConfigMap to add IAM User
+        run: |
+          kubectl get configmap aws-auth -n kube-system -o yaml > aws-auth.yaml
+
+          if grep -q "mapUsers" aws-auth.yaml; then
+            if grep -q "${{ env.IAM_USER_ARN }}" aws-auth.yaml; then
+              echo "User already present in aws-auth"
+            else
+              echo "Adding user to mapUsers"
+              yq eval ".data.mapUsers |= . + \"- userarn: ${{ env.IAM_USER_ARN }}\n  username: yakiradela\n  groups:\n    - system:masters\n\"" -i aws-auth.yaml
+              kubectl apply -f aws-auth.yaml
+            fi
+          else
+            echo "mapUsers section not found, creating with user"
+            yq eval ".data.mapUsers = \"- userarn: ${{ env.IAM_USER_ARN }}\n  username: yakiradela\n  groups:\n    - system:masters\n\"" -i aws-auth.yaml
+            kubectl apply -f aws-auth.yaml
+          fi
+
+          echo "aws-auth ConfigMap after patch:"
+          kubectl get configmap aws-auth -n kube-system -o yaml
 
       - name: Test cluster connection (debug)
         run: kubectl get nodes
