@@ -80,7 +80,12 @@ jobs:
           sudo mv /tmp/eksctl /usr/local/bin
 
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+        run: |
+          mkdir -p $HOME/.kube
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+
+      - name: Set KUBECONFIG environment variable
+        run: echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
 
       - name: Add user to aws-auth config map (if not exists)
         run: |
