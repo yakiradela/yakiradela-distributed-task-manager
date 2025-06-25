@@ -9,7 +9,7 @@ env:
   CLUSTER_NAME: dtm-cluster
   REGISTRY: docker.io
   REPO: yakiradela
-  KUBECONFIG: $HOME/.kube/config
+  KUBECONFIG: $HOME/.kube/config  # מוגדר לכל השלבים
 
 jobs:
   deploy:
@@ -18,7 +18,7 @@ jobs:
 
     steps:
       ####################################################################
-      # שלב 1: Clone הקוד והגדרת הרשאות
+      # שלב 1: Clone הקוד והגדרת הרשאות AWS
       ####################################################################
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -31,7 +31,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       ####################################################################
-      # שלב 2: התקנת כלים (eksctl, kubectl, helm)
+      # שלב 2: התקנת כלים
       ####################################################################
       - name: Install eksctl and kubectl
         run: |
@@ -45,7 +45,7 @@ jobs:
         run: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
       ####################################################################
-      # שלב 3: Terraform - תשתיות
+      # שלב 3: Terraform - יצירת תשתית
       ####################################################################
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
@@ -65,7 +65,7 @@ jobs:
           terraform apply -auto-approve -var-file=terraform.tfvars
 
       ####################################################################
-      # שלב 4: Build & Push Docker Images
+      # שלב 4: בניית תמונות Docker ודחיפה ל-Docker Hub
       ####################################################################
       - name: Docker Login
         uses: docker/login-action@v2
@@ -81,14 +81,14 @@ jobs:
           done
 
       ####################################################################
-      # שלב 5: התחברות ל-EKS והרשאות IAM
+      # שלב 5: התחברות לקלאסטר EKS והגדרת הרשאות
       ####################################################################
-      - name: Configure kubeconfig using eksctl
+      - name: Write kubeconfig using eksctl
         run: |
           eksctl utils write-kubeconfig --cluster $CLUSTER_NAME --region $AWS_REGION
-          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+          echo "✅ kubeconfig written to $KUBECONFIG"
 
-      - name: Add GitHub IAM user to EKS (if not exists)
+      - name: Add GitHub IAM user to aws-auth (if not exists)
         run: |
           eksctl create iamidentitymapping \
             --cluster $CLUSTER_NAME \
@@ -97,13 +97,15 @@ jobs:
             --username yakiradela \
             --group system:masters || true
 
-      - name: Verify EKS nodegroups
+      - name: Verify EKS nodegroup
         run: eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
 
       ####################################################################
-      # שלב 6: פריסת microservices עם Helm
+      # שלב 6: פריסת מיקרו-שירותים עם Helm
       ####################################################################
       - name: Deploy Microservices with Helm
+        env:
+          KUBECONFIG: $HOME/.kube/config
         run: |
           for service in api-gateway tasks-service users-service; do
             helm upgrade --install $service \
