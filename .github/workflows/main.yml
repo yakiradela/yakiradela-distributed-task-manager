@@ -16,9 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      ####################################################################
-      # שלב 1: Clone הקוד והגדרת הרשאות
-      ####################################################################
+      # שלב 1: Clone והתחברות ל-AWS
       - name: Checkout Repository
         uses: actions/checkout@v3
 
@@ -29,9 +27,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      ####################################################################
-      # שלב 2: התקנת Terraform והרצת bootstrap/init/apply
-      ####################################################################
+      # שלב 2: Terraform
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -49,9 +45,7 @@ jobs:
           terraform init
           terraform apply -auto-approve -var-file=terraform.tfvars
 
-      ####################################################################
-      # שלב 3: בניית תמונות Docker ודחיפה ל-Docker Hub
-      ####################################################################
+      # שלב 3: Docker Build & Push
       - name: Docker Login
         uses: docker/login-action@v2
         with:
@@ -65,29 +59,22 @@ jobs:
             docker push $REGISTRY/$REPO/$service:latest
           done
 
-      ####################################################################
-      # שלב 4: התחברות ל-EKS והוספת הרשאות עם eksctl
-      ####################################################################
-      - name: Install kubectl (v1.29.0)
+      # שלב 4: התקנות CLI וניהול גישה עם eksctl
+      - name: Install kubectl and eksctl
         run: |
           curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-
-      - name: Install eksctl
-        run: |
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
           curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
           sudo mv /tmp/eksctl /usr/local/bin
 
-      - name: Update kubeconfig
+      - name: Update kubeconfig via eksctl
         run: |
-          mkdir -p $HOME/.kube
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+          eksctl utils write-kubeconfig --cluster $CLUSTER_NAME --region $AWS_REGION
 
-      - name: Set KUBECONFIG environment variable
+      - name: Set KUBECONFIG env
         run: echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
 
-      - name: Add user to aws-auth config map (if not exists)
+      - name: Add GitHub Actions IAM identity
         run: |
           eksctl create iamidentitymapping \
             --cluster $CLUSTER_NAME \
@@ -96,13 +83,10 @@ jobs:
             --username yakiradela \
             --group system:masters || true
 
-      - name: Check nodegroups
+      - name: Check Nodegroup Status (via eksctl)
         run: eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
 
-
-      ####################################################################
-      # שלב 5: התקנת Helm ופריסת microservices
-      ####################################################################
+      # שלב 5: פריסה עם Helm (כאן אין מנוס מ-kubectl)
       - name: Install Helm
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -116,9 +100,6 @@ jobs:
               --namespace distributed-task-manager --create-namespace
           done
 
-      ####################################################################
-      # שלב 6: פריסת שירותים משותפים (Vault, MongoDB, Monitoring)
-      ####################################################################
       - name: Create Namespace
         run: kubectl apply -f distributed-task-manager/k8s/namespace.yaml
 
@@ -128,7 +109,7 @@ jobs:
       - name: Deploy MongoDB
         run: helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
 
-      - name: Deploy Monitoring (Grafana + Prometheus)
+      - name: Deploy Monitoring
         run: helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
       - name: Apply Ingress Rules
