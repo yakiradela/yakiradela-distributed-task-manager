@@ -96,8 +96,9 @@ jobs:
             --username yakiradela \
             --group system:masters || true
 
-      - name: Test cluster connection
-        run: eksctl get nodes
+      - name: Check nodegroups
+        run: eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
+
 
       ####################################################################
       # שלב 5: התקנת Helm ופריסת microservices
