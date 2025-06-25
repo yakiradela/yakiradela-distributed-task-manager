@@ -16,115 +16,122 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      ####################################################################
-      # שלב 1: Clone והגדרת AWS
-      ####################################################################
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+    ####################################################################
+    # שלב 1: Clone והגדרת AWS
+    ####################################################################
+    - name: Checkout Repository
+      uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
 
-      ####################################################################
-      # שלב 2: התקנת eksctl (ללא kubectl ו־helm בשלב זה)
-      ####################################################################
-      - name: Install eksctl
-        run: |
-          curl -s --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-          sudo mv /tmp/eksctl /usr/local/bin
+    ####################################################################
+    # שלב 2: התקנת eksctl בלבד
+    ####################################################################
+    - name: Install eksctl
+      run: |
+        curl -s --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+        sudo mv /tmp/eksctl /usr/local/bin
 
-      ####################################################################
-      # שלב 3: Terraform - יצירת תשתית
-      ####################################################################
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.0
+    ####################################################################
+    # שלב 3: Terraform - יצירת תשתית
+    ####################################################################
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
 
-      - name: Terraform Bootstrap
-        working-directory: distributed-task-manager/infra/boostrap
-        run: |
-          terraform init
-          terraform apply -auto-approve -var="aws_region=${{ env.AWS_REGION }}"
+    - name: Terraform Bootstrap
+      working-directory: distributed-task-manager/infra/boostrap
+      run: |
+        terraform init
+        terraform apply -auto-approve -var="aws_region=${{ env.AWS_REGION }}"
 
-      - name: Terraform Apply Infra
-        working-directory: distributed-task-manager/infra
-        run: |
-          terraform init
-          terraform apply -auto-approve -var-file=terraform.tfvars
+    - name: Terraform Apply Infra
+      working-directory: distributed-task-manager/infra
+      run: |
+        terraform init
+        terraform apply -auto-approve -var-file=terraform.tfvars
 
-      ####################################################################
-      # שלב 4: בניית ודחיפת Docker Images
-      ####################################################################
-      - name: Docker Login
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+    ####################################################################
+    # שלב 4: Docker Build & Push
+    ####################################################################
+    - name: Docker Login
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and Push Microservice Images
-        run: |
-          for service in api-gateway tasks-service users-service; do
-            docker build -t $REGISTRY/$REPO/$service:latest ./distributed-task-manager/services/$service
-            docker push $REGISTRY/$REPO/$service:latest
-          done
+    - name: Build and Push Microservice Images
+      run: |
+        for service in api-gateway tasks-service users-service; do
+          docker build -t $REGISTRY/$REPO/$service:latest ./distributed-task-manager/services/$service
+          docker push $REGISTRY/$REPO/$service:latest
+        done
 
-      ####################################################################
-      # שלב 5: התחברות ל־EKS והגדרות IAM עם eksctl בלבד
-      ####################################################################
-      - name: Write kubeconfig using eksctl
-        run: |
-          eksctl utils write-kubeconfig --cluster $CLUSTER_NAME --region $AWS_REGION
-          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+    ####################################################################
+    # שלב 5: התחברות לקלאסטר והגדרות IAM עם eksctl
+    ####################################################################
+    - name: Write kubeconfig using eksctl
+      run: |
+        eksctl utils write-kubeconfig --cluster $CLUSTER_NAME --region $AWS_REGION
+        echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
 
-      - name: Add IAM user to aws-auth
-        run: |
-          eksctl create iamidentitymapping \
-            --cluster $CLUSTER_NAME \
-            --region $AWS_REGION \
-            --arn arn:aws:iam::557690607676:user/yakiradela \
-            --username yakiradela \
-            --group system:masters || true
+    - name: Add IAM user to aws-auth
+      run: |
+        eksctl create iamidentitymapping \
+          --cluster $CLUSTER_NAME \
+          --region $AWS_REGION \
+          --arn arn:aws:iam::557690607676:user/yakiradela \
+          --username yakiradela \
+          --group system:masters || true
 
-      - name: Verify Nodegroups
-        run: |
-          eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
+    - name: Verify Nodegroups
+      run: eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
 
-      ####################################################################
-      # שלב 6: התקנת Helm (נדרש לפריסה)
-      ####################################################################
-      - name: Install Helm
-        run: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    ####################################################################
+    # שלב 6: התקנת Helm
+    ####################################################################
+    - name: Install Helm
+      run: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-      ####################################################################
-      # שלב 7: פריסת מיקרו-שירותים עם Helm בלבד
-      ####################################################################
-      - name: Deploy Microservices with Helm
-        env:
-           KUBECONFIG: $HOME/.kube/config
-        run: |
-              for service in api-gateway tasks-service users-service; do
-              helm upgrade --install $service \
-              ./charts/$service \
-              --values ./charts/$service/values.yaml \
-              --namespace distributed-task-manager --create-namespace
-              done
+    ####################################################################
+    # שלב 7: פריסת מיקרו-שירותים עם Helm בלבד
+    ####################################################################
+    - name: Deploy Microservices with Helm
+      env:
+        KUBECONFIG: $HOME/.kube/config
+      run: |
+        for service in api-gateway tasks-service users-service; do
+          helm upgrade --install $service \
+            ./charts/$service \
+            --values ./charts/$service/values.yaml \
+            --namespace distributed-task-manager --create-namespace
+        done
 
-      ####################################################################
-      # שלב 8: פריסת Vault, MongoDB, Monitoring (אם אין דרך אחרת)
-      ####################################################################
-      - name: Apply Vault Agent Config (kubectl only when necessary)
-        run: kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
+    ####################################################################
+    # שלב 8: Vault, MongoDB, Monitoring
+    ####################################################################
+    - name: Apply Vault Agent Config
+      env:
+        KUBECONFIG: $HOME/.kube/config
+      run: kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
 
-      - name: Deploy MongoDB via Helm
-        run: helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
+    - name: Deploy MongoDB via Helm
+      env:
+        KUBECONFIG: $HOME/.kube/config
+      run: helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
 
-      - name: Deploy Monitoring via Helm
-        run: helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
+    - name: Deploy Monitoring via Helm
+      env:
+        KUBECONFIG: $HOME/.kube/config
+      run: helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
-      - name: Apply Ingress Rules (if needed)
-        run: kubectl apply -f distributed-task-manager/k8s/ingress.yaml
+    - name: Apply Ingress Rules
+      env:
+        KUBECONFIG: $HOME/.kube/config
+      run: kubectl apply -f distributed-task-manager/k8s/ingress.yaml
