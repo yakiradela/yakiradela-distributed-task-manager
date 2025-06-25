@@ -97,7 +97,7 @@ jobs:
             --group system:masters || true
 
       - name: Test cluster connection
-        run: ekssctl get nodes
+        run: eksctl get nodes
 
       ####################################################################
       # שלב 5: התקנת Helm ופריסת microservices
