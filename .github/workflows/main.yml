@@ -104,13 +104,15 @@ jobs:
       # שלב 7: פריסת מיקרו-שירותים עם Helm בלבד
       ####################################################################
       - name: Deploy Microservices with Helm
+        env:
+           KUBECONFIG: $HOME/.kube/config
         run: |
-          for service in api-gateway tasks-service users-service; do
-            helm upgrade --install $service \
+              for service in api-gateway tasks-service users-service; do
+              helm upgrade --install $service \
               ./charts/$service \
               --values ./charts/$service/values.yaml \
               --namespace distributed-task-manager --create-namespace
-          done
+              done
 
       ####################################################################
       # שלב 8: פריסת Vault, MongoDB, Monitoring (אם אין דרך אחרת)
