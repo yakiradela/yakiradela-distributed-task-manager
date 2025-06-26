@@ -81,6 +81,9 @@ jobs:
         eksctl utils write-kubeconfig --cluster $CLUSTER_NAME --region $AWS_REGION
         echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
 
+    - name: Print AWS Caller Identity
+      run: aws sts get-caller-identity
+
     - name: Add IAM user to aws-auth
       run: |
         eksctl create iamidentitymapping \
@@ -93,6 +96,14 @@ jobs:
     - name: Verify Nodegroups
       run: eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
 
+    - name: Verify kubeconfig and cluster access
+      run: |
+        export KUBECONFIG=$HOME/.kube/config
+        echo "=== Current context ==="
+        kubectl config current-context
+        echo "=== Nodes ==="
+        kubectl get nodes
+
     ####################################################################
     # שלב 6: התקנת Helm
     ####################################################################
@@ -103,9 +114,8 @@ jobs:
     # שלב 7: פריסת מיקרו-שירותים עם Helm בלבד
     ####################################################################
     - name: Deploy Microservices with Helm
-      env:
-        KUBECONFIG: $HOME/.kube/config
       run: |
+        export KUBECONFIG=$HOME/.kube/config
         for service in api-gateway tasks-service users-service; do
           helm upgrade --install $service \
             ./charts/$service \
@@ -117,21 +127,21 @@ jobs:
     # שלב 8: Vault, MongoDB, Monitoring
     ####################################################################
     - name: Apply Vault Agent Config
-      env:
-        KUBECONFIG: $HOME/.kube/config
-      run: kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
+      run: |
+        export KUBECONFIG=$HOME/.kube/config
+        kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
 
     - name: Deploy MongoDB via Helm
-      env:
-        KUBECONFIG: $HOME/.kube/config
-      run: helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
+      run: |
+        export KUBECONFIG=$HOME/.kube/config
+        helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
 
     - name: Deploy Monitoring via Helm
-      env:
-        KUBECONFIG: $HOME/.kube/config
-      run: helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
+      run: |
+        export KUBECONFIG=$HOME/.kube/config
+        helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
     - name: Apply Ingress Rules
-      env:
-        KUBECONFIG: $HOME/.kube/config
-      run: kubectl apply -f distributed-task-manager/k8s/ingress.yaml
+      run: |
+        export KUBECONFIG=$HOME/.kube/config
+        kubectl apply -f distributed-task-manager/k8s/ingress.yaml
