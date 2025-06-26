@@ -30,15 +30,7 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     ####################################################################
-    # שלב 2: התקנת eksctl בלבד
-    ####################################################################
-    - name: Install eksctl
-      run: |
-        curl -s --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-        sudo mv /tmp/eksctl /usr/local/bin
-
-    ####################################################################
-    # שלב 3: Terraform - יצירת תשתית
+    # שלב 2: Terraform - יצירת תשתית
     ####################################################################
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -58,7 +50,7 @@ jobs:
         terraform apply -auto-approve -var-file=terraform.tfvars
 
     ####################################################################
-    # שלב 4: Docker Build & Push
+    # שלב 3: Docker Build & Push
     ####################################################################
     - name: Docker Login
       uses: docker/login-action@v2
@@ -74,44 +66,30 @@ jobs:
         done
 
     ####################################################################
-    # שלב 5: התחברות לקלאסטר והגדרות IAM עם eksctl
+    # שלב 4: התחברות לקלאסטר עם AWS CLI בלבד
     ####################################################################
-    - name: Write kubeconfig using eksctl
+    - name: Configure kubeconfig via AWS CLI
       run: |
-        eksctl utils write-kubeconfig --cluster $CLUSTER_NAME --region $AWS_REGION
-        echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+        aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
 
     - name: Print AWS Caller Identity
       run: aws sts get-caller-identity
 
-    - name: Add IAM user to aws-auth
-      run: |
-        eksctl create iamidentitymapping \
-          --cluster $CLUSTER_NAME \
-          --region $AWS_REGION \
-          --arn arn:aws:iam::557690607676:user/yakiradela \
-          --username yakiradela \
-          --group system:masters || true
-
-    - name: Verify Nodegroups
-      run: eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
-
     - name: Verify kubeconfig and cluster access
       run: |
-        export KUBECONFIG=$HOME/.kube/config
         echo "=== Current context ==="
         kubectl config current-context
         echo "=== Nodes ==="
         kubectl get nodes
 
     ####################################################################
-    # שלב 6: התקנת Helm
+    # שלב 5: התקנת Helm
     ####################################################################
     - name: Install Helm
       run: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
     ####################################################################
-    # שלב 7: פריסת מיקרו-שירותים עם Helm בלבד
+    # שלב 6: פריסת מיקרו-שירותים עם Helm בלבד
     ####################################################################
     - name: Deploy Microservices with Helm
       run: |
@@ -124,7 +102,7 @@ jobs:
         done
 
     ####################################################################
-    # שלב 8: Vault, MongoDB, Monitoring
+    # שלב 7: Vault, MongoDB, Monitoring
     ####################################################################
     - name: Apply Vault Agent Config
       run: |
