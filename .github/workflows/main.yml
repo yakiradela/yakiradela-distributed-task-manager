@@ -17,7 +17,7 @@ jobs:
 
     steps:
     ####################################################################
-    # שלב 1: Clone והגדרת AWS
+    # שלב 1: Clone והרשאות AWS
     ####################################################################
     - name: Checkout Repository
       uses: actions/checkout@v3
@@ -30,28 +30,7 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     ####################################################################
-    # שלב 2: התקנת eksctl וחיבור לקלאסטר
-    ####################################################################
-    - name: Install eksctl
-      run: |
-        curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-        sudo mv /tmp/eksctl /usr/local/bin
-
-    - name: Configure kubeconfig using eksctl
-      run: |
-        eksctl utils write-kubeconfig --region $AWS_REGION --cluster $CLUSTER_NAME
-
-    - name: Debug kubeconfig
-      run: |
-        echo "=== Kubeconfig ==="
-        cat $KUBECONFIG
-        echo "=== Current context ==="
-        kubectl config current-context
-        echo "=== Nodes ==="
-        kubectl get nodes
-
-    ####################################################################
-    # שלב 3: Terraform - יצירת תשתית
+    # שלב 2: Terraform - יצירת תשתית
     ####################################################################
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -71,7 +50,7 @@ jobs:
         terraform apply -auto-approve -var-file=terraform.tfvars
 
     ####################################################################
-    # שלב 4: Docker Build & Push
+    # שלב 3: Docker Build & Push
     ####################################################################
     - name: Docker Login
       uses: docker/login-action@v2
@@ -87,14 +66,38 @@ jobs:
         done
 
     ####################################################################
-    # שלב 5: התקנת Helm
+    # שלב 4: התקנת כלים (eksctl, helm)
     ####################################################################
+    - name: Install eksctl
+      run: |
+        curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+        sudo mv /tmp/eksctl /usr/local/bin
+
     - name: Install Helm
       run: |
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
     ####################################################################
-    # שלב 6: פריסת מיקרו-שירותים עם Helm בלבד
+    # שלב 5: חיבור לקלאסטר עם eksctl
+    ####################################################################
+    - name: Configure kubeconfig using eksctl
+      run: |
+        eksctl utils write-kubeconfig --region $AWS_REGION --cluster $CLUSTER_NAME
+
+    ####################################################################
+    # שלב 6: בדיקת גישה עם kubectl
+    ####################################################################
+    - name: Debug kubeconfig
+      run: |
+        echo "=== Kubeconfig ==="
+        cat $KUBECONFIG
+        echo "=== Current context ==="
+        kubectl config current-context
+        echo "=== Nodes ==="
+        kubectl get nodes
+
+    ####################################################################
+    # שלב 7: פריסת שירותים עם Helm + Vault + MongoDB + Monitoring
     ####################################################################
     - name: Deploy Microservices with Helm
       run: |
@@ -105,9 +108,6 @@ jobs:
             --namespace distributed-task-manager --create-namespace
         done
 
-    ####################################################################
-    # שלב 7: Vault, MongoDB, Monitoring
-    ####################################################################
     - name: Apply Vault Agent Config
       run: |
         kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
@@ -120,6 +120,9 @@ jobs:
       run: |
         helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
+    ####################################################################
+    # שלב 8: החלת Ingress
+    ####################################################################
     - name: Apply Ingress Rules
       run: |
         kubectl apply -f distributed-task-manager/k8s/ingress.yaml
