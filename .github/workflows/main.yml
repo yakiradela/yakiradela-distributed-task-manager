@@ -66,7 +66,7 @@ jobs:
         done
 
     ####################################################################
-    # שלב 4: התקנת כלים (eksctl, helm)
+    # שלב 4: התקנת כלים - eksctl ו-helm
     ####################################################################
     - name: Install eksctl
       run: |
@@ -78,26 +78,33 @@ jobs:
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
     ####################################################################
-    # שלב 5: חיבור לקלאסטר עם eksctl
+    # שלב 5: התחברות לקלאסטר עם eksctl
     ####################################################################
     - name: Configure kubeconfig using eksctl
       run: |
         eksctl utils write-kubeconfig --region $AWS_REGION --cluster $CLUSTER_NAME
 
     ####################################################################
-    # שלב 6: בדיקת גישה עם kubectl
+    # שלב 6: אימות מול הקלאסטר עם eksctl + kubectl
     ####################################################################
-    - name: Debug kubeconfig
+    - name: Verify cluster access using eksctl and kubectl
       run: |
-        echo "=== Kubeconfig ==="
-        cat $KUBECONFIG
-        echo "=== Current context ==="
+        eksctl utils write-kubeconfig --region $AWS_REGION --cluster $CLUSTER_NAME
+
+        echo "=== EKS Cluster Info ==="
+        eksctl get cluster --region $AWS_REGION --name $CLUSTER_NAME
+
+        echo "=== Nodegroups ==="
+        eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
+
+        echo "=== Kubeconfig Context ==="
         kubectl config current-context
+
         echo "=== Nodes ==="
         kubectl get nodes
 
     ####################################################################
-    # שלב 7: פריסת שירותים עם Helm + Vault + MongoDB + Monitoring
+    # שלב 7: פריסת מיקרו-שירותים עם Helm
     ####################################################################
     - name: Deploy Microservices with Helm
       run: |
@@ -121,7 +128,7 @@ jobs:
         helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
     ####################################################################
-    # שלב 8: החלת Ingress
+    # שלב 8: הגדרת Ingress
     ####################################################################
     - name: Apply Ingress Rules
       run: |
