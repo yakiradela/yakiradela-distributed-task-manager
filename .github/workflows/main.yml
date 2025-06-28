@@ -47,7 +47,7 @@ jobs:
       working-directory: distributed-task-manager/infra
       run: |
         terraform init
-        terraform apply -auto-approve -var-file=terraform.tfvars
+        terraform apply -auto-approve 
 
     ####################################################################
     # שלב 3: Docker Build & Push
