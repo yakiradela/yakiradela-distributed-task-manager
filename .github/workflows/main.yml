@@ -43,11 +43,11 @@ jobs:
         terraform init
         terraform apply -auto-approve -var="aws_region=${{ env.AWS_REGION }}"
 
-    - name: Terraform Apply Infra
+    - name: Terraform Apply Infra (modules.vpc + modules.eks)
       working-directory: distributed-task-manager/infra
       run: |
         terraform init
-        terraform apply -auto-approve 
+        terraform apply -auto-approve -target=module.vpc -target=module.eks
 
     ####################################################################
     # שלב 3: Docker Build & Push
