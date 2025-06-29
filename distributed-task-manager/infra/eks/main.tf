@@ -23,9 +23,11 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       instance_types = ["t3.medium"]
+      capacity_type  = "ON_DEMAND"       # חשוב ליציבות והימנעות מ-SPOT errors
       desired_size   = 2
       min_size       = 1
       max_size       = 3
+      ami_type       = "AL2_x86_64"      # Amazon Linux 2 AMI, מותאם ל-EKS
     }
   }
 
