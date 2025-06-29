@@ -78,19 +78,17 @@ jobs:
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
     ####################################################################
-    # שלב 5: התחברות לקלאסטר עם eksctl
+    # שלב 5: התחברות לקלאסטר עם AWS CLI
     ####################################################################
-    - name: Configure kubeconfig using eksctl
+    - name: Configure kubeconfig using AWS CLI
       run: |
-        eksctl utils write-kubeconfig --region $AWS_REGION --cluster $CLUSTER_NAME
+        aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
 
     ####################################################################
-    # שלב 6: אימות מול הקלאסטר עם eksctl + kubectl
+    # שלב 6: אימות מול הקלאסטר עם kubectl + eksctl
     ####################################################################
     - name: Verify cluster access using eksctl and kubectl
       run: |
-        eksctl utils write-kubeconfig --region $AWS_REGION --cluster $CLUSTER_NAME
-
         echo "=== EKS Cluster Info ==="
         eksctl get cluster --region $AWS_REGION --name $CLUSTER_NAME
 
