@@ -43,11 +43,11 @@ jobs:
         terraform init
         terraform apply -auto-approve -var="aws_region=${{ env.AWS_REGION }}"
 
-    - name: Terraform Apply Infra (modules.vpc + modules.eks)
+    - name: Terraform Apply Infra (modules.vpc + modules.eks + modules.rds)
       working-directory: distributed-task-manager/infra
       run: |
         terraform init
-        terraform apply -auto-approve -target=module.vpc -target=module.eks
+        terraform apply -auto-approve -target=module.vpc -target=module.eks -target=module.rds
 
     ####################################################################
     # שלב 3: Docker Build & Push
@@ -85,21 +85,10 @@ jobs:
         aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
 
     ####################################################################
-    # שלב 6: אימות מול הקלאסטר עם kubectl + eksctl
+    # שלב 6: אימות מול הקלאסטר - פשוט עם eksctl
     ####################################################################
-    - name: Verify cluster access using eksctl and kubectl
-      run: |
-        echo "=== EKS Cluster Info ==="
-        eksctl get cluster --region $AWS_REGION --name $CLUSTER_NAME
-
-        echo "=== Nodegroups ==="
-        eksctl get nodegroup --cluster $CLUSTER_NAME --region $AWS_REGION
-
-        echo "=== Kubeconfig Context ==="
-        kubectl config current-context
-
-        echo "=== Nodes ==="
-        kubectl get nodes
+    - name: Verify cluster nodes
+      run: eksctl get nodes --cluster $CLUSTER_NAME --region $AWS_REGION
 
     ####################################################################
     # שלב 7: פריסת מיקרו-שירותים עם Helm
