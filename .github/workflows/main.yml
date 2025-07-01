@@ -85,7 +85,7 @@ jobs:
         aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
 
     - name: Verify cluster nodes
-      run: eksctl get nodes --cluster $CLUSTER_NAME --region $AWS_REGION
+      run: kubectl get nodes 
 
     ####################################################################
     # שלב 6: פריסת Helm ו-K8s Resources
