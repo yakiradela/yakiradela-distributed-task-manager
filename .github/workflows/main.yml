@@ -30,7 +30,35 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     ####################################################################
-    # שלב 2: Terraform - יצירת תשתית
+    # שלב 2: התקנת כלים - eksctl, helm, docker login
+    ####################################################################
+    - name: Install eksctl
+      run: |
+        curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+        sudo mv /tmp/eksctl /usr/local/bin
+
+    - name: Install Helm
+      run: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+    - name: Docker Login
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    ####################################################################
+    # שלב 3: Build & Push Docker Images
+    ####################################################################
+    - name: Build and Push Microservice Images
+      run: |
+        for service in api-gateway tasks-service users-service; do
+          docker build -t $REGISTRY/$REPO/$service:latest ./distributed-task-manager/services/$service
+          docker push $REGISTRY/$REPO/$service:latest
+        done
+
+    ####################################################################
+    # שלב 4: Terraform - יצירת תשתית (אחרי שהכל מוכן)
     ####################################################################
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -50,48 +78,17 @@ jobs:
         terraform apply -auto-approve -target=module.vpc -target=module.eks -target=module.rds
 
     ####################################################################
-    # שלב 3: Docker Build & Push
-    ####################################################################
-    - name: Docker Login
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    - name: Build and Push Microservice Images
-      run: |
-        for service in api-gateway tasks-service users-service; do
-          docker build -t $REGISTRY/$REPO/$service:latest ./distributed-task-manager/services/$service
-          docker push $REGISTRY/$REPO/$service:latest
-        done
-
-    ####################################################################
-    # שלב 4: התקנת כלים - eksctl ו-helm
-    ####################################################################
-    - name: Install eksctl
-      run: |
-        curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-        sudo mv /tmp/eksctl /usr/local/bin
-
-    - name: Install Helm
-      run: |
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-    ####################################################################
-    # שלב 5: התחברות לקלאסטר עם AWS CLI
+    # שלב 5: התחברות לקלאסטר
     ####################################################################
     - name: Configure kubeconfig using AWS CLI
       run: |
         aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
 
-    ####################################################################
-    # שלב 6: אימות מול הקלאסטר - פשוט עם eksctl
-    ####################################################################
     - name: Verify cluster nodes
       run: eksctl get nodes --cluster $CLUSTER_NAME --region $AWS_REGION
 
     ####################################################################
-    # שלב 7: פריסת מיקרו-שירותים עם Helm
+    # שלב 6: פריסת Helm ו-K8s Resources
     ####################################################################
     - name: Deploy Microservices with Helm
       run: |
@@ -114,9 +111,6 @@ jobs:
       run: |
         helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
-    ####################################################################
-    # שלב 8: הגדרת Ingress
-    ####################################################################
     - name: Apply Ingress Rules
       run: |
         kubectl apply -f distributed-task-manager/k8s/ingress.yaml
