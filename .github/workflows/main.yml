@@ -90,27 +90,49 @@ jobs:
     ####################################################################
     # שלב 6: פריסת Helm ו-K8s Resources
     ####################################################################
+    - name: Configure kubeconfig using eksctl
+      run: |
+         eksctl utils write-kubeconfig --cluster $CLUSTER_NAME --region $AWS_REGION
+
+    - name: Verify kubeconfig and access
+      run: |
+         echo "Available contexts:"
+         kubectl config get-contexts
+         echo "Current context:"
+         kubectl config current-context
+         echo "Cluster nodes:"
+         kubectl get nodes
+
+    - name: Create Namespace (if not exists)
+      run: |
+         kubectl get namespace distributed-task-manager || kubectl create namespace distributed-task-manager
+
     - name: Deploy Microservices with Helm
       run: |
         for service in api-gateway tasks-service users-service; do
-          helm upgrade --install $service \
-            ./charts/$service \
-            --values ./charts/$service/values.yaml \
-            --namespace distributed-task-manager --create-namespace
+        echo "Deploying $service..."
+        helm upgrade --install $service \
+        ./charts/$service \
+        --values ./charts/$service/values.yaml \
+        --namespace distributed-task-manager
         done
-
-    - name: Apply Vault Agent Config
-      run: |
-        kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
 
     - name: Deploy MongoDB via Helm
       run: |
+        echo "Deploying MongoDB..."
         helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
 
-    - name: Deploy Monitoring via Helm
+    - name: Deploy Monitoring (Grafana + Prometheus)
       run: |
+        echo "Deploying monitoring stack..."
         helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
+
+    - name: Apply Vault Agent Config
+      run: |
+        echo "Applying Vault Agent Config..."
+        kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
 
     - name: Apply Ingress Rules
       run: |
+        echo "Applying Ingress Rules..."
         kubectl apply -f distributed-task-manager/k8s/ingress.yaml
