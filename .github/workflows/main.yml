@@ -22,13 +22,15 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v3
 
-    - name: Install unzip and AWS CLI
+    - name: Install unzip, AWS CLI, eksctl
       run: |
         sudo apt-get update
-        sudo apt-get install -y unzip
+        sudo apt-get install -y unzip curl
         curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
         unzip awscliv2.zip
         sudo ./aws/install --update
+        curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+        sudo mv /tmp/eksctl /usr/local/bin
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
@@ -38,7 +40,7 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     ####################################################################
-    # שלב 2: Terraform - יצירת תשתית (VPC, RDS, EKS)
+    # שלב 2: Terraform - תשתיות (VPC, RDS, EKS)
     ####################################################################
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -63,7 +65,6 @@ jobs:
     - name: Install kubectl
       run: |
         KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
-        echo "Kubectl version is $KUBECTL_VERSION"
         curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
         chmod +x kubectl
         sudo mv kubectl /usr/local/bin/
@@ -81,9 +82,11 @@ jobs:
     ####################################################################
     # שלב 4: התחברות לקלאסטר EKS
     ####################################################################
-    - name: Update kubeconfig
+    - name: Update kubeconfig via eksctl
       run: |
-        aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+        eksctl utils write-kubeconfig \
+          --cluster="${CLUSTER_NAME}" \
+          --region="${AWS_REGION}"
 
     - name: Verify Cluster Access
       run: |
@@ -113,12 +116,12 @@ jobs:
     ####################################################################
     - name: Create Namespace (if not exists)
       run: |
-        kubectl get namespace distributed-task-manager || kubectl create namespace distributed-task-manager
+        kubectl get namespace distributed-task-manager || \
+        kubectl create namespace distributed-task-manager
 
     - name: Deploy Microservices with Helm
       run: |
         for service in api-gateway tasks-service users-service; do
-          echo "Deploying $service..."
           helm upgrade --install $service \
             ./charts/$service \
             --values ./charts/$service/values.yaml \
@@ -137,20 +140,16 @@ jobs:
     # שלב 7: משאבי K8s נוספים
     ####################################################################
     - name: Apply Vault Agent Config
-      run: |
-        kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
+      run: kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
 
     - name: Apply Ingress Rules
-      run: |
-        kubectl apply -f distributed-task-manager/k8s/ingress.yaml
+      run: kubectl apply -f distributed-task-manager/k8s/ingress.yaml
 
     ####################################################################
     # שלב 8: בדיקות והדפסה
     ####################################################################
     - name: List Helm Releases
-      run: |
-        helm list -n distributed-task-manager
+      run: helm list -n distributed-task-manager
 
     - name: Get All K8s Resources
-      run: |
-        kubectl get all -n distributed-task-manager
+      run: kubectl get all -n distributed-task-manager
