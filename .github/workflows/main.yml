@@ -30,28 +30,7 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     ####################################################################
-    # שלב 2: התקנת כלים - kubectl + helm
-    ####################################################################
-    - name: Install kubectl
-      run: |
-        KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
-        echo "Kubectl version is $KUBECTL_VERSION"
-        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-        chmod +x kubectl
-        sudo mv kubectl /usr/local/bin/
-
-    - name: Verify kubectl
-      run: kubectl version --client
-
-    - name: Install Helm
-      run: |
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-    - name: Verify Helm
-      run: helm version
-
-    ####################################################################
-    # שלב 3: Terraform - יצירת תשתית (VPC, EKS, RDS)
+    # שלב 2: Terraform - יצירת תשתית (VPC, EKS, RDS)
     ####################################################################
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -69,6 +48,36 @@ jobs:
       run: |
         terraform init
         terraform apply -auto-approve -target=module.vpc -target=module.eks -target=module.rds
+
+    ####################################################################
+    # שלב 3: התקנת כלים - kubectl + helm + unzip + AWS CLI
+    ####################################################################
+    - name: Install kubectl
+      run: |
+        KUBECTL_VERSION=$(curl -s https://dl.k8s.io/release/stable.txt)
+        echo "Kubectl version is $KUBECTL_VERSION"
+        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+
+    - name: Verify kubectl
+      run: kubectl version --client
+
+    - name: Install Helm
+      run: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+    - name: Verify Helm
+      run: helm version
+
+    - name: Install unzip and AWS CLI v2
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y unzip
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip awscliv2.zip
+        sudo ./aws/install
+        aws --version
 
     ####################################################################
     # שלב 4: התחברות לקלאסטר EKS
