@@ -1,4 +1,4 @@
-name: CI/CD - DTM App on EKS
+name: CI/CD - DTM App on EKS 
 
 on:
   push:
