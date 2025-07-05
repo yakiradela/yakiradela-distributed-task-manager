@@ -17,10 +17,38 @@ jobs:
 
     steps:
     ####################################################################
-    # שלב 1: Clone והרשאות AWS
+    # שלב 1: Terraform - יצירת תשתית (VPC, EKS, RDS)
     ####################################################################
     - name: Checkout Repository
       uses: actions/checkout@v3
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
+    - name: Terraform Bootstrap
+      working-directory: distributed-task-manager/infra/boostrap
+      run: |
+        terraform init
+        terraform apply -auto-approve -var="aws_region=${{ env.AWS_REGION }}"
+
+    - name: Terraform Apply Infra
+      working-directory: distributed-task-manager/infra
+      run: |
+        terraform init
+        terraform apply -auto-approve -target=module.vpc -target=module.eks -target=module.rds
+
+    ####################################################################
+    # שלב 2: הרשאות AWS + התקנות
+    ####################################################################
+    - name: Install unzip and awscli
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y unzip curl
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip awscliv2.zip
+        sudo ./aws/install
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
@@ -30,69 +58,37 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     ####################################################################
-    # שלב 2: התקנת כלים - terraform אלטרנטיבי, kubectl, helm, eksctl
+    # שלב 3: התקנת כלים - kubectl + helm
     ####################################################################
-    - name: Install tools (terraform, kubectl, helm, eksctl, unzip & awscli)
+    - name: Install kubectl
       run: |
-        # Terraform
-        curl -Ls https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip -o terraform.zip
-        unzip terraform.zip
-        sudo mv terraform /usr/local/bin/
-
-        # kubectl
         KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+        echo "Kubectl version is $KUBECTL_VERSION"
         curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
         chmod +x kubectl
         sudo mv kubectl /usr/local/bin/
 
-        # Helm
+    - name: Verify kubectl
+      run: kubectl version --client
+
+    - name: Install Helm
+      run: |
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-        # unzip + awscli
-        sudo apt-get update
-        sudo apt-get install -y unzip curl
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
-        unzip awscliv2.zip
-        sudo ./aws/install
+    - name: Verify Helm
+      run: helm version
 
-        # eksctl
-        curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" \
-          | tar xz -C /tmp
-        sudo mv /tmp/eksctl /usr/local/bin/
-
-    - name: Verify tools
+    ####################################################################
+    # שלב 4: התחברות לקלאסטר EKS
+    ####################################################################
+    - name: Update kubeconfig
       run: |
-        terraform version
-        kubectl version --client
-        helm version
-        aws --version
-        eksctl version
+        aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
 
-    ####################################################################
-    # שלב 3: יצירת תשתית עם Terraform (VPC + RDS)
-    ####################################################################
-    - name: Terraform: init & apply VPC + RDS
-      working-directory: distributed-task-manager/infra
+    - name: Verify Cluster Access
       run: |
-        terraform init
-        terraform apply -auto-approve -target=module.vpc -target=module.rds
-
-    ####################################################################
-    # שלב 4: יצירת EKS עם eksctl
-    ####################################################################
-    - name: Create EKS cluster via eksctl
-      run: |
-        eksctl create cluster \
-          --name $CLUSTER_NAME \
-          --region $AWS_REGION \
-          --vpc-private-subnets=$(terraform output -raw vpc_private_subnets) \
-          --vpc-public-subnets=$(terraform output -raw vpc_public_subnets) \
-          --nodegroup-name dev-nodes \
-          --node-type t3.medium \
-          --nodes 2 \
-          --nodes-min 1 \
-          --nodes-max 3 \
-          --managed
+        kubectl get nodes
+        kubectl config current-context
 
     ####################################################################
     # שלב 5: Build & Push Docker Images
@@ -107,34 +103,56 @@ jobs:
       run: |
         set -e
         for service in api-gateway tasks-service users-service; do
+          echo "Building and pushing $service..."
           docker build -t $REGISTRY/$REPO/$service:latest ./distributed-task-manager/services/$service
           docker push $REGISTRY/$REPO/$service:latest
         done
 
     ####################################################################
-    # שלב 6: התחברות לקלאסטר ומימוש פריסה
+    # שלב 6: פריסה עם Helm
     ####################################################################
-    - name: Update kubeconfig
-      run: |
-        aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
-
-    - name: Deploy with Helm
+    - name: Create Namespace (if not exists)
       run: |
         kubectl get namespace distributed-task-manager || kubectl create namespace distributed-task-manager
-        for service in api-gateway tasks-service users-service mongodb monitoring; do
-          helm upgrade --install $service ./charts/$service --values ./charts/$service/values.yaml --namespace distributed-task-manager
+
+    - name: Deploy Microservices with Helm
+      run: |
+        for service in api-gateway tasks-service users-service; do
+          echo "Deploying $service..."
+          helm upgrade --install $service \
+            ./charts/$service \
+            --values ./charts/$service/values.yaml \
+            --namespace distributed-task-manager
         done
 
-    - name: Apply K8s definitions
+    - name: Deploy MongoDB via Helm
+      run: |
+        echo "Deploying MongoDB..."
+        helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
+
+    - name: Deploy Monitoring Stack (Grafana + Prometheus)
+      run: |
+        echo "Deploying monitoring stack..."
+        helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
+
+    ####################################################################
+    # שלב 7: משאבי K8s נוספים
+    ####################################################################
+    - name: Apply Vault Agent Config
       run: |
         kubectl apply -f distributed-task-manager/k8s/vault-agent-config.yaml
+
+    - name: Apply Ingress Rules
+      run: |
         kubectl apply -f distributed-task-manager/k8s/ingress.yaml
 
     ####################################################################
-    # שלב 7: בדיקות והדפסה
+    # שלב 8: בדיקות והדפסה
     ####################################################################
     - name: List Helm Releases
-      run: helm list -n distributed-task-manager
+      run: |
+        helm list -n distributed-task-manager
 
     - name: Get All K8s Resources
-      run: kubectl get all -n distributed-task-manager
+      run: |
+        kubectl get all -n distributed-task-manager
