@@ -17,11 +17,29 @@ jobs:
 
     steps:
     ####################################################################
-    # שלב 1: Terraform - יצירת תשתית (VPC, EKS, RDS)
+    # שלב 1: Clone והרשאות AWS
     ####################################################################
     - name: Checkout Repository
       uses: actions/checkout@v3
 
+    - name: Install unzip and AWS CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y unzip
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip awscliv2.zip
+        sudo ./aws/install
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    ####################################################################
+    # שלב 2: Terraform - יצירת תשתית (VPC, RDS, EKS)
+    ####################################################################
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
@@ -40,29 +58,11 @@ jobs:
         terraform apply -auto-approve -target=module.vpc -target=module.eks -target=module.rds
 
     ####################################################################
-    # שלב 2: הרשאות AWS + התקנות
-    ####################################################################
-    - name: Install unzip and awscli
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y unzip curl
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-        unzip awscliv2.zip
-        sudo ./aws/install
-
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    ####################################################################
-    # שלב 3: התקנת כלים - kubectl + helm
+    # שלב 3: התקנת kubectl ו-helm
     ####################################################################
     - name: Install kubectl
       run: |
-        KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+        KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
         echo "Kubectl version is $KUBECTL_VERSION"
         curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
         chmod +x kubectl
@@ -127,12 +127,10 @@ jobs:
 
     - name: Deploy MongoDB via Helm
       run: |
-        echo "Deploying MongoDB..."
         helm upgrade --install mongodb ./charts/mongodb --namespace distributed-task-manager
 
     - name: Deploy Monitoring Stack (Grafana + Prometheus)
       run: |
-        echo "Deploying monitoring stack..."
         helm upgrade --install monitoring ./charts/grafana-prometheus --namespace distributed-task-manager
 
     ####################################################################
